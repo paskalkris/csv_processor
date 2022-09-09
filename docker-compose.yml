@@ -1,0 +1,53 @@
+version: '3.8'
+
+x-common-environment: &common-variables
+  - CELERY_BROKER_URL=redis://redis:6379/0
+  - CELERY_RESULT_BACKEND=redis://redis:6379/0
+  
+  - PATH_TO_LOCAL_FILES=/usr/src/storage
+  
+  - USE_S3_STORAGE=False
+  - S3_BUCKET='bucket_name'
+  - S3_KMS_KEY_ID='kms-key-id'
+
+
+services:
+
+  web:
+    build: ./
+    ports:
+      - 8004:8000
+    command: uvicorn src.main:app --host 0.0.0.0 --reload
+    volumes:
+      - ./:/usr/src/app
+      - ${PATH_TO_LOCAL_FILES}:/usr/src/storage
+    environment: *common-variables
+    depends_on:
+      - redis
+
+  worker:
+    build: ./
+    command: celery --app=src.worker.celery worker --loglevel=info --logfile=/var/log/celery.log
+    volumes:
+      - ./:/usr/src/app
+      - ${PATH_TO_LOCAL_FILES}:/usr/src/storage
+    environment: *common-variables
+    depends_on:
+      - web
+      - redis
+
+  redis:
+    image: redis:6-alpine
+
+  dashboard:
+    build: ./
+    command: celery --app=src.worker.celery flower --port=5555 --broker=redis://redis:6379/0
+    ports:
+      - 5556:5555
+    volumes:
+      - ./:/usr/src/app
+    environment: *common-variables
+    depends_on:
+      - web
+      - redis
+      - worker
